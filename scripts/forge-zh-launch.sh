@@ -4,6 +4,8 @@
 # 1. 后台建 tmux 三栏 session（幂等：已存在则直接 attach）
 # 2. 打开 Ghostty 并 attach
 
+set -euo pipefail
+
 # tmux 路径（由 install.sh 在安装时注入，亦支持 PATH 查找）
 TMUX_BIN="TMUX_BIN_PLACEHOLDER"
 # 若占位符未被替换（直接运行原始脚本），自动查找
@@ -55,6 +57,14 @@ fi
 PATCH_PATH=""
 if [[ -n "$NVM_NODE_BIN" ]]; then
     PATCH_PATH="export PATH=\"$NVM_NODE_BIN:\$HOME/.local/bin:\$PATH\"; "
+fi
+
+# ── 僵尸 session 检测（pane 数不足时自动重建）──────────────
+if "$TMUX_BIN" has-session -t "$SESSION" 2>/dev/null; then
+    PANE_COUNT=$("$TMUX_BIN" list-panes -t "$SESSION" 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "$PANE_COUNT" -lt 3 ]]; then
+        "$TMUX_BIN" kill-session -t "$SESSION" 2>/dev/null || true
+    fi
 fi
 
 if ! "$TMUX_BIN" has-session -t "$SESSION" 2>/dev/null; then

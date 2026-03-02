@@ -6,10 +6,11 @@
 
 set -euo pipefail
 
-FORGE_VERSION="1.0.0"
-
 # ── 脚本目录（兼容 bash + 从任意位置调用）─────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ── 版本号从 VERSION 文件读取（单一真实源）────────────────
+FORGE_VERSION="$(cat "$SCRIPT_DIR/../VERSION" 2>/dev/null || echo '1.0.1')"
 
 # ── 彩色输出 ──────────────────────────────────────────────
 log_info()  { printf "\033[34m[Forge-zh]\033[0m %s\n" "$1"; }
@@ -39,9 +40,9 @@ log_ok "macOS $(sw_vers -productVersion)"
 # 检测 Homebrew（兼容 Apple Silicon 和 Intel）
 BREW=""
 if [[ -x /opt/homebrew/bin/brew ]]; then
-    BREW="/opt/homebrew/bin/brew"          # Apple Silicon
+    BREW="/opt/homebrew/bin/brew"
 elif [[ -x /usr/local/bin/brew ]]; then
-    BREW="/usr/local/bin/brew"             # Intel
+    BREW="/usr/local/bin/brew"
 fi
 
 if [[ -n "$BREW" ]]; then
@@ -58,11 +59,9 @@ for candidate in \
     /opt/homebrew/bin/tmux \
     /usr/local/bin/tmux; do
     if [[ -x "$candidate" ]]; then
-        TMUX_BIN="$candidate"
-        break
+        TMUX_BIN="$candidate"; break
     fi
 done
-# 最后尝试 PATH
 if [[ -z "$TMUX_BIN" ]] && command -v tmux &>/dev/null; then
     TMUX_BIN="$(command -v tmux)"
 fi
@@ -79,14 +78,12 @@ else
     exit 1
 fi
 
-# 写入 tmux 路径供启动脚本使用
 TMUX_BIN_RESOLVED="$TMUX_BIN"
 
 # 检测 Node.js / npm（支持 nvm、fnm、系统安装）
 NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 HAS_NPM=false
 
-# 先激活 nvm（如果存在）
 if [[ -s "$NVM_DIR/nvm.sh" ]]; then
     # shellcheck source=/dev/null
     source "$NVM_DIR/nvm.sh" 2>/dev/null || true
@@ -120,8 +117,14 @@ if [[ -d "$GHOSTTY_DST" ]]; then
 fi
 
 cp -R "$GHOSTTY_SRC" "$GHOSTTY_DST"
-# 清除检疫属性（避免 Gatekeeper 阻止）
-xattr -dr com.apple.quarantine "$GHOSTTY_DST" 2>/dev/null || true
+xattr -dr com.apple.quarantine "$GHOSTTY_DST" 2>/dev/null || \
+    log_warn "检疫属性清除失败（首次启动可能需在「安全性」手动允许）"
+
+# 完整性验证
+if [[ ! -x "$GHOSTTY_DST/Contents/MacOS/ghostty" ]]; then
+    log_error "Ghostty 安装不完整，请重新下载 DMG 后重试"
+    exit 1
+fi
 log_ok "Ghostty 简体中文版已安装到 /Applications/Ghostty.app"
 
 # ── [2] 安装 tmux 配置 ────────────────────────────────────
@@ -150,11 +153,13 @@ fi
 install_npm_pkg() {
     local pkg="$1" cmd="$2"
     if command -v "$cmd" &>/dev/null; then
-        log_ok "$cmd 已安装，跳过"
-    else
-        log_info "安装 $pkg..."
-        npm install -g "$pkg"
+        log_ok "$cmd 已安装，跳过"; return
+    fi
+    log_info "安装 $pkg..."
+    if npm install -g "$pkg" 2>/dev/null; then
         log_ok "$cmd 安装完成"
+    else
+        log_warn "$cmd 安装失败（可稍后运行：npm install -g $pkg）"
     fi
 }
 
@@ -170,12 +175,25 @@ log_info "安装启动脚本..."
 
 mkdir -p "$HOME/.local/bin" || { log_error "无法创建 ~/.local/bin"; exit 1; }
 
-# 从模板生成启动脚本，替换 tmux 路径为本机实际路径
 LAUNCH_DST="$HOME/.local/bin/forge-zh-launch"
 sed "s|TMUX_BIN_PLACEHOLDER|${TMUX_BIN_RESOLVED}|g" \
     "$SCRIPT_DIR/scripts/forge-zh-launch.sh" > "$LAUNCH_DST"
 chmod +x "$LAUNCH_DST"
 log_ok "启动脚本已安装到 ~/.local/bin/forge-zh-launch"
+
+# 安装诊断工具
+if [[ -f "$SCRIPT_DIR/scripts/forge-zh-diagnose.sh" ]]; then
+    cp "$SCRIPT_DIR/scripts/forge-zh-diagnose.sh" "$HOME/.local/bin/forge-zh-diagnose"
+    chmod +x "$HOME/.local/bin/forge-zh-diagnose"
+    log_ok "诊断工具已安装到 ~/.local/bin/forge-zh-diagnose"
+fi
+
+# 安装卸载脚本
+if [[ -f "$SCRIPT_DIR/scripts/uninstall.sh" ]]; then
+    cp "$SCRIPT_DIR/scripts/uninstall.sh" "$HOME/.local/bin/forge-zh-uninstall"
+    chmod +x "$HOME/.local/bin/forge-zh-uninstall"
+    log_ok "卸载脚本已安装到 ~/.local/bin/forge-zh-uninstall"
+fi
 
 # ── [5] 确保 ~/.local/bin 在 PATH ─────────────────────────
 LOCAL_BIN_LINE='export PATH="$HOME/.local/bin:$PATH"'
@@ -184,8 +202,7 @@ SHELL_NAME="$(basename "$SHELL")"
 add_to_path() {
     local rc_file="$1"
     if [[ -f "$rc_file" ]] && grep -q '\.local/bin' "$rc_file" 2>/dev/null; then
-        log_ok "~/.local/bin 已在 $rc_file 的 PATH 中"
-        return
+        log_ok "~/.local/bin 已在 $rc_file 的 PATH 中"; return
     fi
     printf '\n# Forge-zh\n%s\n' "$LOCAL_BIN_LINE" >> "$rc_file"
     log_ok "已将 ~/.local/bin 追加到 $rc_file"
@@ -198,8 +215,16 @@ case "$SHELL_NAME" in
             add_to_path "$HOME/.bash_profile"
         else
             add_to_path "$HOME/.bashrc"
-        fi
-        ;;
+        fi ;;
+    fish)
+        FISH_CONFIG="$HOME/.config/fish/config.fish"
+        mkdir -p "$(dirname "$FISH_CONFIG")"
+        if ! grep -q '\.local/bin' "$FISH_CONFIG" 2>/dev/null; then
+            printf '\n# Forge-zh\nfish_add_path "$HOME/.local/bin"\n' >> "$FISH_CONFIG"
+            log_ok "已将 ~/.local/bin 追加到 fish config"
+        else
+            log_ok "~/.local/bin 已在 fish config 的 PATH 中"
+        fi ;;
     *) log_warn "Shell $SHELL_NAME：请手动添加 export PATH=\"\$HOME/.local/bin:\$PATH\" 到启动文件" ;;
 esac
 
@@ -214,11 +239,18 @@ if [[ -d "$LAUNCHER_DESKTOP" ]]; then
 fi
 cp -R "$LAUNCHER_SRC" "$LAUNCHER_DESKTOP"
 chmod +x "$LAUNCHER_DESKTOP/Contents/MacOS/Forge-zh"
-# 清除检疫属性
 xattr -dr com.apple.quarantine "$LAUNCHER_DESKTOP" 2>/dev/null || true
 log_ok "桌面图标已创建：~/Desktop/Forge-zh.app"
 
-# ── [7] 完成提示 ──────────────────────────────────────────
+# ── [7] 安装验证 ──────────────────────────────────────────
+printf "\n[安装验证]\n"
+[[ -d "/Applications/Ghostty.app" ]]            && log_ok "Ghostty.app"  || log_warn "Ghostty.app 未找到"
+[[ -x "$HOME/.local/bin/forge-zh-launch" ]]     && log_ok "启动脚本"     || log_warn "启动脚本未找到"
+command -v claude &>/dev/null                    && log_ok "claude CLI"   || log_warn "claude 未安装（需配置 API Key）"
+command -v codex  &>/dev/null                    && log_ok "codex CLI"    || log_warn "codex 未安装"
+command -v gemini &>/dev/null                    && log_ok "gemini CLI"   || log_warn "gemini 未安装"
+
+# ── [8] 完成提示 ──────────────────────────────────────────
 printf "\n"
 printf "╔════════════════════════════════════════╗\n"
 printf "║   Forge-zh v%s 安装完成！         ║\n" "$FORGE_VERSION"
@@ -229,4 +261,6 @@ printf "║  3. 配置 API Keys：                   ║\n"
 printf "║     claude：claude /login             ║\n"
 printf "║     codex： export OPENAI_API_KEY=... ║\n"
 printf "║     gemini：gemini auth login         ║\n"
+printf "║  4. 问题诊断：forge-zh-diagnose       ║\n"
+printf "║  5. 卸载：    forge-zh-uninstall      ║\n"
 printf "╚════════════════════════════════════════╝\n\n"
