@@ -1,18 +1,11 @@
 #!/usr/bin/env bash
 # Forge-zh.app 主可执行文件
-# 调用 forge-zh-launch 完成实际启动逻辑
+# 调用 ~/.local/bin/forge-zh-launch 启动三栏工作台
 
 LAUNCH="$HOME/.local/bin/forge-zh-launch"
 
 if [[ -x "$LAUNCH" ]]; then
     exec "$LAUNCH"
 else
-    # 若启动脚本不在 ~/.local/bin，尝试从 App 包内找
-    APP_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-    FALLBACK="$APP_DIR/scripts/forge-zh-launch.sh"
-    if [[ -x "$FALLBACK" ]]; then
-        exec "$FALLBACK"
-    else
-        osascript -e 'display alert "Forge-zh 未正确安装" message "请先双击 DMG 中的 install.sh 完成安装，再启动 Forge-zh。"'
-    fi
+    osascript -e 'display alert "Forge-zh 未正确安装" message "请先挂载 Forge-zh DMG，双击 install.sh 完成安装，再启动 Forge-zh。"'
 fi
