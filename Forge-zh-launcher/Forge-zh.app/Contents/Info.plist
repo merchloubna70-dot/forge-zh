@@ -26,7 +26,7 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>LSUIElement</key>
-    <false/>
+    <true/>
     <key>NSHumanReadableCopyright</key>
     <string>Forge-zh — 中文开发者 AI 终端工作站</string>
 </dict>
