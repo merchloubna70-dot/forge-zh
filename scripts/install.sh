@@ -195,6 +195,13 @@ if [[ -f "$SCRIPT_DIR/scripts/uninstall.sh" ]]; then
     log_ok "卸载脚本已安装到 ~/.local/bin/forge-zh-uninstall"
 fi
 
+# 安装统一复制工具（OSC 52 远端剪贴板同步 + pbcopy 兜底）
+if [[ -f "$SCRIPT_DIR/scripts/forge-zh-yank.sh" ]]; then
+    cp "$SCRIPT_DIR/scripts/forge-zh-yank.sh" "$HOME/.local/bin/forge-zh-yank"
+    chmod +x "$HOME/.local/bin/forge-zh-yank"
+    log_ok "复制工具已安装到 ~/.local/bin/forge-zh-yank"
+fi
+
 # ── [5] 确保 ~/.local/bin 在 PATH ─────────────────────────
 LOCAL_BIN_LINE='export PATH="$HOME/.local/bin:$PATH"'
 SHELL_NAME="$(basename "$SHELL")"
